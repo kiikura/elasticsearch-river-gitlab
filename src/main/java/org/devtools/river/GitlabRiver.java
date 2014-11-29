@@ -1,6 +1,7 @@
 package org.devtools.river;
 
 import org.elasticsearch.client.Client;
+import org.elasticsearch.client.Requests;
 import org.elasticsearch.common.inject.Inject;
 import org.elasticsearch.river.AbstractRiverComponent;
 import org.elasticsearch.river.River;
@@ -21,7 +22,7 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
         logger.info("CREATE GitlabRiver");
 
         // TODO Your code..
-
+        //Requests.indexRequest().source()
     }
 
     @Override
