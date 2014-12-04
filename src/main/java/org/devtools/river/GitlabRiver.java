@@ -226,7 +226,7 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 
 		private void updateIssueIndex(GitlabProject project) {
 			logger.info("START GitlabRiverLogic.updateIssueIndex: " + project.getPathWithNamespace());
-			String issuesTail = String.format("%s%s%s", GitlabProject.URL,project.getId(),GitlabIssue.URL);
+			String issuesTail = String.format("%s/%s%s", GitlabProject.URL,project.getId(),GitlabIssue.URL);
 			Iterator<GitlabIssue[]> issuesIterator = api.retrieve().asIterator(issuesTail, GitlabIssue[].class);
 			int issueCounter=0;
 			boolean breakFlg = false;
@@ -267,8 +267,8 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 				.field("author",issue.getAuthor().getUsername())
 				.field("created_at",issue.getCreatedAt())
 				.field("updated_at",issue.getUpdatedAt())
-				.field("assignee",issue.getAssignee().getUsername())
-				.field("milestone",issue.getMilestone().getTitle())
+//				.field("assignee",issue.getAssignee().getUsername())
+//				.field("milestone",issue.getMilestone().getTitle())
 				.array("labels",issue.getLabels());
 			
 			//add notes
