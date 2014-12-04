@@ -197,14 +197,17 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 		@Override
 		public void run() {
 			logger.info("START GitlabRiverLogic: " + client.toString());
-
+			int loops = 0;
 			while (!closed) {
+				logger.info("LOOPSTART GitlabRiverLogic: loop=" + (loops++));
+				int projectCount=0;
 				try {
 					List<GitlabProject> projects = api.getProjects();
 					for (GitlabProject project : projects) {
 						if (projectRegex.matcher(project.getPathWithNamespace())
 								.matches()) {
 							updateIssueIndex(project);
+							projectCount++;
 						}
 					}
 				} catch (Exception e) {
@@ -212,13 +215,13 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 				}
 
 				try {
-					logger.info("START GitlabRiverLogic: " + client.toString());
+					logger.info("LOOPEND GitlabRiverLogic: projectCount=" + projectCount + " sleeping");
 					Thread.sleep(fetchInterval.millis());
 				} catch (InterruptedException e) {
 
 				}
 			}
-
+			logger.info("END GitlabRiverLogic: " + client.toString());
 		}
 
 		private void updateIssueIndex(GitlabProject project) {
