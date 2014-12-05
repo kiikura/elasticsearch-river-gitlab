@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.map.ObjectWriter;
 import org.elasticsearch.action.bulk.BulkItemResponse;
 import org.elasticsearch.action.bulk.BulkProcessor;
 import org.elasticsearch.action.bulk.BulkRequest;
@@ -258,28 +256,36 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 			XContentBuilder builder = XContentFactory.jsonBuilder();
 			builder.startObject();//issue root start
 			builder.field("id",issue.getId())
-					.field("project_id",issue.getProjectId())
-				.field("project_path",project.getPathWithNamespace())
-				.field("iid",issue.getIid())
-				.field("title",issue.getTitle())
-				.field("description",issue.getDescription())
-				.field("state",issue.getState())
-				.field("author",issue.getAuthor().getUsername())
-				.field("created_at",issue.getCreatedAt())
-				.field("updated_at",issue.getUpdatedAt())
-//				.field("assignee",issue.getAssignee().getUsername())
-//				.field("milestone",issue.getMilestone().getTitle())
-				.array("labels",issue.getLabels());
+				   .field("project_id",issue.getProjectId())
+				   .field("project_path",project.getPathWithNamespace())
+				   .field("iid",issue.getIid())
+				   .field("title",issue.getTitle())
+				   .field("description",issue.getDescription())
+				   .field("state",issue.getState())
+				   .field("author",issue.getAuthor().getUsername())
+				   .field("created_at",issue.getCreatedAt())
+				   .field("updated_at",issue.getUpdatedAt());
+			if(issue.getAssignee() != null)
+				builder.field("assignee",issue.getAssignee().getUsername());
+			if(issue.getMilestone() != null)
+				builder.field("milestone",issue.getMilestone().getTitle());
+			builder.array("labels",issue.getLabels());
 			
 			//add notes
-//			builder.startArray("notes");
-//			for(GitlabNote note : notes){
-//				
-//			}
-//			builder.endArray();
-			ObjectMapper mapper = new ObjectMapper();
-			ObjectWriter writer = mapper.writer();							
-			builder.rawField("notes", writer.writeValueAsBytes(notes));
+			builder.startArray("notes");
+			for(GitlabNote note : notes){
+				builder.startObject();
+				builder.field("body", note.getBody());
+				builder.field("id", note.getId());
+				builder.field("create_at", note.getCreatedAt());
+				builder.field("attachment", note.getAttachment());
+				builder.field("author", note.getAuthor().getUsername());
+				builder.endObject();
+			}
+			builder.endArray();
+//			ObjectMapper mapper = new ObjectMapper();
+//			ObjectWriter writer = mapper.writer();							
+//			builder.rawField("notes", writer.writeValueAsBytes(notes));
 			
 			//issue root end
 			builder.endObject();
