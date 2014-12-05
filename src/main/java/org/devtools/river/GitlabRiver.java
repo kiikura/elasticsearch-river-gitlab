@@ -26,6 +26,7 @@ import org.elasticsearch.river.RiverName;
 import org.elasticsearch.river.RiverSettings;
 import org.gitlab.api.GitlabAPI;
 import org.gitlab.api.models.GitlabIssue;
+import org.gitlab.api.models.GitlabMergeRequest;
 import org.gitlab.api.models.GitlabNote;
 import org.gitlab.api.models.GitlabProject;
 
@@ -53,6 +54,8 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 	private Pattern projectRegex;
 
 	private int issueMax;
+	
+	private int mrMax;
 
 	private int mergeRequestMax;
 
@@ -81,6 +84,8 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 				gitlabSettings.get("project"), riverName.name()));
 		this.issueMax = XContentMapValues.nodeIntegerValue(
 				gitlabSettings.get("issue_max"), -1);
+		this.issueMax = XContentMapValues.nodeIntegerValue(
+				gitlabSettings.get("mr_max"), -1);
 		this.mergeRequestMax = XContentMapValues.nodeIntegerValue(
 				gitlabSettings.get("merge_request_max"), -1);
 		this.username = XContentMapValues.nodeStringValue(
@@ -205,6 +210,7 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 						if (projectRegex.matcher(project.getPathWithNamespace())
 								.matches()) {
 							updateIssueIndex(project);
+							updateMergeRequestIndex(project);
 							projectCount++;
 						}
 					}
@@ -222,6 +228,75 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 			logger.info("END GitlabRiverLogic: " + client.toString());
 		}
 
+		/**
+		 * MergeRequestを更新
+		 * @param project
+		 */
+		private void updateMergeRequestIndex(GitlabProject project) {
+			logger.info("START GitlabRiverLogic.updateMergeRequestIndex: " + project.getPathWithNamespace());
+			String mrTail = String.format("%s/%s%s", GitlabProject.URL,project.getId(),GitlabMergeRequest.URL);
+			Iterator<GitlabMergeRequest[]> issuesIterator = api.retrieve().asIterator(mrTail, GitlabMergeRequest[].class);
+			int mrCounter=0;
+			boolean breakFlg = false;
+			while(issuesIterator.hasNext() && !breakFlg){
+				GitlabMergeRequest[] mrsPage =issuesIterator.next();
+				for (GitlabMergeRequest mr : mrsPage) {
+					if(mrMax > 0 && mrMax < mrCounter++) {
+						breakFlg = true;
+						break;
+					}
+					List<GitlabNote> notes = getMergeRequestNotes(mr);
+					
+					try {
+						IndexRequest req = Requests.indexRequest(indexName)
+								.type("mergerequest")
+								.id(String.valueOf(mr.getId()))
+								.source(toMergeRequestJson(project,mr,notes));
+						bulkProcessor.add(req);
+					} catch (IOException e) {
+						logger.warn("mergerequest index", e);
+					}
+				}
+			}
+		}
+		
+		
+
+		private XContentBuilder toMergeRequestJson(GitlabProject project,
+				GitlabMergeRequest mr, List<GitlabNote> notes) throws IOException {
+			
+			
+			XContentBuilder builder = XContentFactory.jsonBuilder();
+			builder.startObject();//issue root start
+			builder.field("id",mr.getId())
+				   .field("project_id",mr.getProjectId())
+				   .field("project_path",project.getPathWithNamespace())
+				   .field("iid",mr.getIid())
+				   .field("title",mr.getTitle())
+				   .field("description",mr.getDescription())
+				   .field("state",mr.getState())
+				   .field("source_project_id", mr.getSourceProjectId())
+				   .field("source_branch", mr.getSourceBranch())
+				   .field("target_branch", mr.getTargetBranch())
+				   .field("milestone_id", mr.getMilestoneId())
+				   .field("author",mr.getAuthor().getUsername());
+			if(mr.getAssignee() != null)
+				builder.field("assignee",mr.getAssignee().getUsername());
+			
+			//add notes
+			builder.startArray("notes");
+			appendNotesArray(notes, builder);
+			builder.endArray();
+			
+			//issue root end
+			builder.endObject();
+			return builder;
+		}
+
+		/**
+		 * Issueを更新
+		 * @param project
+		 */
 		private void updateIssueIndex(GitlabProject project) {
 			logger.info("START GitlabRiverLogic.updateIssueIndex: " + project.getPathWithNamespace());
 			String issuesTail = String.format("%s/%s%s", GitlabProject.URL,project.getId(),GitlabIssue.URL);
@@ -267,12 +342,24 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 				   .field("updated_at",issue.getUpdatedAt());
 			if(issue.getAssignee() != null)
 				builder.field("assignee",issue.getAssignee().getUsername());
-			if(issue.getMilestone() != null)
+			if(issue.getMilestone() != null){
 				builder.field("milestone",issue.getMilestone().getTitle());
+				builder.field("milestone_id",issue.getMilestone().getId());
+			}
 			builder.array("labels",issue.getLabels());
 			
 			//add notes
 			builder.startArray("notes");
+			appendNotesArray(notes, builder);
+			builder.endArray();
+			
+			//issue root end
+			builder.endObject();
+			return builder;
+		}
+
+		private void appendNotesArray(List<GitlabNote> notes,
+				XContentBuilder builder) throws IOException {
 			for(GitlabNote note : notes){
 				builder.startObject();
 				builder.field("body", note.getBody());
@@ -282,14 +369,6 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 				builder.field("author", note.getAuthor().getUsername());
 				builder.endObject();
 			}
-			builder.endArray();
-//			ObjectMapper mapper = new ObjectMapper();
-//			ObjectWriter writer = mapper.writer();							
-//			builder.rawField("notes", writer.writeValueAsBytes(notes));
-			
-			//issue root end
-			builder.endObject();
-			return builder;
 		}
 
 		private List<GitlabNote> getIssueNotes(GitlabIssue issue) {
@@ -297,8 +376,19 @@ public class GitlabRiver extends AbstractRiverComponent implements River {
 				return api.getNotes(issue);
 			} catch (IOException e) {
 				logger.error(
-						"faile getIssueNotes() issue.projectId={} issue.iid={}",
+						"fail getIssueNotes() issue.projectId={} issue.iid={}",
 						e, issue.getProjectId(), issue.getIid());
+				return Collections.EMPTY_LIST;
+			}
+		}
+		
+		private List<GitlabNote> getMergeRequestNotes(GitlabMergeRequest mr) {
+			try {
+				return api.getNotes(mr);
+			} catch (IOException e) {
+				logger.error(
+						"fail getMergeRequestNotes() mr.projectId={} mr.iid={}",
+						e, mr.getProjectId(), mr.getIid());
 				return Collections.EMPTY_LIST;
 			}
 		}
